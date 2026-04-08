@@ -1,0 +1,2 @@
+# omgmail
+Gmail IMAP gateway
