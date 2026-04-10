@@ -1,11 +1,13 @@
-# omgmail - Gmail IMAP gateway
+# omgmail - SQLite mail queue bridge
 
-This is a very underdeveloped work in progress, but the goal is to solve the problem of Gmail announcing that they are discontinuing support for the "POP from another account" feature.  (Which, by the way, is a terribly cruel thing to do to users who both need a vanity email address from a domain they don't control and love Gmail's feature set.  Just saying...)
+`omgmail` is a lightweight bridge between a `procmail` injection path and a scheduled processor. Incoming mail is queued in SQLite and later consumed in batches by a separate process.
 
-OMGmail intends to become a tool that can be used in two ways:
+Current implementation focuses on a robust queue foundation:
 
-- As a fetchmail pipe, ingesting emails on-demand via stdin into a storage layer.
-- As a scheduled (cron-driven, e.g.) processor of those ingested mails, injecting them via IMAP into Gmail and then removing them from the storage layer.
+- SQLite queue with `WAL` mode and configurable busy timeout.
+- Injection command that reads raw mail from `stdin` and stores it quickly.
+- Emergency flat-file fallback when SQLite is unavailable.
+- Processor command with single-instance locking and atomic fetch-and-clear semantics.
 
 ## Package name
 
@@ -20,10 +22,55 @@ From the repository root:
 python -m pip install -e .
 ```
 
-## Run
+## Commands
 
 Use the installed console script:
 
 ```bash
-omgmail [...]
+omgmail [global-options] <command>
+```
+
+Commands:
+
+- `ingest`: reads one raw message from `stdin` and inserts into the queue.
+- `process`: atomically fetches all queued messages, clears the queue, then processes each message.
+- `stats`: prints queue size.
+- `config`: manage persistent configuration in the database.
+  - `config set <key> <value>`: set a configuration value (e.g., `config set imap.host "imap.gmail.com"`).
+  - `config get <key>`: get a configuration value (e.g., `config get imap.host`).
+  - `config delete <key>`: delete a configuration value (e.g., `config delete imap.password`).
+  - `config list`: list all stored configuration values.
+
+Global options:
+
+- `--db-path`: SQLite DB path (default: `~/.local/state/omgmail/queue.sqlite3`).
+- `--emergency-dump`: fallback file path for DB failures.
+- `--lock-file`: lock file path used to enforce single processor instance.
+- `--busy-timeout-ms`: SQLite busy timeout in milliseconds (default: `30000`).
+
+## Example Integration
+
+### Setup
+
+Store IMAP credentials in the database:
+
+```bash
+omgmail config set imap.host "imap.gmail.com"
+omgmail config set imap.port "993"
+omgmail config set imap.user "user@gmail.com"
+omgmail config set imap.password "app-password"
+omgmail config set imap.mailbox "INBOX"
+```
+
+### Procmail Recipe
+
+```procmail
+:0
+| /usr/bin/omgmail ingest --db-path /var/spool/omgmail/queue.sqlite3
+```
+
+### Cron Processor
+
+```cron
+*/2 * * * * /usr/bin/omgmail process --db-path /var/spool/omgmail/queue.sqlite3 >>/var/log/omgmail.log 2>&1
 ```
