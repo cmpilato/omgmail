@@ -34,7 +34,7 @@ Commands:
 
 - `ingest`: reads one raw message from `stdin` and inserts into the queue.
 - `process`: atomically fetches all queued messages, clears the queue, then processes each message.
-- `stats`: prints queue size.
+- `queue`: prints a queue summary table (ID, sender, sent date, and subject) with one message per line.
 - `config`: manage persistent configuration in the database.
   - `config set <key> <value>`: set a configuration value (e.g., `config set imap.host "imap.gmail.com"`).
   - `config get <key>`: get a configuration value (e.g., `config get imap.host`).

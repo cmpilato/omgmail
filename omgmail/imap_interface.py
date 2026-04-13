@@ -31,43 +31,39 @@ class OMGMailIMAPConfig:
         return imap
 
 
-def imap_date_from_message(msg: Message) -> str | None:
-    """Return a quoted IMAP date-time string, or None if parsing fails."""
-    date_hdr = msg.get("Date")
-    if not date_hdr:
-        return None
-
+def imap_date_from_message(msg: Message) -> str:
+    """Return a quoted IMAP date-time string."""
     try:
+        date_hdr = msg["Date"]
         parsed = email.utils.parsedate_tz(date_hdr)
         if not parsed:
-            return None
-
-        timestamp = email.utils.mktime_tz(parsed)
-        date_str = time.strftime("%d-%b-%Y %H:%M:%S +0000", time.gmtime(timestamp))
-        return f'"{date_str}"'
+            raise RuntimeError("Failed to parse date header")
+        timestamp = time.gmtime(email.utils.mktime_tz(parsed))
     except Exception:
-        return None
+        timestamp = time.gmtime()
+    date_str = time.strftime("%d-%b-%Y %H:%M:%S +0000", timestamp)
+    return f'"{date_str}"'
 
 
 def update_message(imap: imaplib.IMAP4_SSL, key: str, message: mboxMessage, mailbox: str) -> None:
     try:
         raw_message = message.as_bytes()
         imap_date = imap_date_from_message(message)
-        imap.append(mailbox, None, imap_date, raw_message)
+        imap.append(mailbox, "", imap_date, raw_message)
         print(f"Uploaded message {key}")
     except Exception as exc:
         print(f"Failed to upload message {key}: {exc}", file=sys.stderr)
 
 
 def upload_messages(config: OMGMailIMAPConfig) -> None:
-    imap = config.configured_imap()
-    key: str
-    message: mboxMessage
-    try:
-        for key, message in []:
-            update_message(imap, key, message, config.imap_mailbox or "ImportedInbox")
-    finally:
-        imap.logout()
+    config.configured_imap()
+    # key: str
+    # message: mboxMessage
+    # try:
+    #     for key, message in []:
+    #         update_message(imap, key, message, config.imap_mailbox or "ImportedInbox")
+    # finally:
+    #     imap.logout()
 
 
 def upload_mail_record(mail: MailRecord, config: OMGMailIMAPConfig) -> None:
@@ -80,6 +76,6 @@ def upload_mail_record(mail: MailRecord, config: OMGMailIMAPConfig) -> None:
     try:
         imap_date = imap_date_from_message(msg)
         mailbox = config.imap_mailbox or "ImportedInbox"
-        imap.append(mailbox, None, imap_date, mail.raw_content)
+        imap.append(mailbox, "", imap_date, mail.raw_content)
     finally:
         imap.logout()
