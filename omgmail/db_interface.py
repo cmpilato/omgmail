@@ -218,6 +218,15 @@ def count_queue_rows(config: QueueConfig) -> int:
         return int(row[0])
 
 
+def list_queue_rows(config: QueueConfig) -> list[MailRecord]:
+    """Return queued mail rows ordered from oldest to newest."""
+    with _open_connection(config) as conn:
+        rows = conn.execute(
+            "SELECT id, received_at, raw_content FROM queue ORDER BY id",
+        ).fetchall()
+    return [MailRecord(id=row[0], received_at=row[1], raw_content=row[2]) for row in rows]
+
+
 def get_config_value(queue_config: QueueConfig, key: str) -> str | None:
     """Retrieve a config value from the database by key."""
     with _open_connection(queue_config) as conn:
