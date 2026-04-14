@@ -17,6 +17,7 @@ class OMGMailIMAPConfig:
     imap_user: str | None = None
     imap_password: str | None = None
     imap_mailbox: str | None = None
+    imap_mailbox_header: str | None = None
 
     def configured_imap(self) -> imaplib.IMAP4_SSL:
         if not all([self.imap_host, self.imap_user, self.imap_password, self.imap_mailbox]):
@@ -43,6 +44,18 @@ def imap_date_from_message(msg: Message) -> str:
         timestamp = time.gmtime()
     date_str = time.strftime("%d-%b-%Y %H:%M:%S +0000", timestamp)
     return f'"{date_str}"'
+
+
+def mailbox_from_message(msg: Message, config: OMGMailIMAPConfig) -> str:
+    header_name = config.imap_mailbox_header
+    if header_name:
+        header_value = msg.get(header_name)
+        if header_value is not None:
+            candidate = str(header_value).strip()
+            if candidate:
+                return candidate
+
+    return config.imap_mailbox or "ImportedInbox"
 
 
 def update_message(imap: imaplib.IMAP4_SSL, key: str, message: mboxMessage, mailbox: str) -> None:
@@ -75,7 +88,7 @@ def upload_mail_record(mail: MailRecord, config: OMGMailIMAPConfig) -> None:
     imap = config.configured_imap()
     try:
         imap_date = imap_date_from_message(msg)
-        mailbox = config.imap_mailbox or "ImportedInbox"
+        mailbox = mailbox_from_message(msg, config)
         imap.append(mailbox, "", imap_date, mail.raw_content)
     finally:
         imap.logout()

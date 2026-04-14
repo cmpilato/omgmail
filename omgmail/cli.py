@@ -136,6 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 imap_user=stored["user"],
                 imap_password=stored["password"],
                 imap_mailbox=stored["mailbox"],
+                imap_mailbox_header=stored["mailbox_header"],
             )
         try:
             result = process_current_mails(queue_config, imap_config=imap_config)

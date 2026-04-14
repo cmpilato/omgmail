@@ -29,6 +29,7 @@ dev = [
     "black",
     "isort",
     "mypy>=1.19.0",
+    "pytest",
     "ruff",
 ]
 
