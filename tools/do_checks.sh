@@ -18,4 +18,4 @@ if [ ${DO_FORMAT} -eq 1 ]; then
     black --fast ${TARGETS}
     isort ${TARGETS}
 fi
-ruff check ${TARGETS} ${RUFF_CHECK_ARGS} && ruff format ${TARGETS} ${RUFF_FORMAT_ARGS} && mypy ${TARGETS}
+ruff check ${TARGETS} ${RUFF_CHECK_ARGS} && ruff format ${TARGETS} ${RUFF_FORMAT_ARGS} && mypy ${TARGETS} && pytest .

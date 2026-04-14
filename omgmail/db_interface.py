@@ -272,4 +272,5 @@ def get_imap_config_from_db(queue_config: QueueConfig) -> dict[str, str | None]:
         "user": stored.get("imap.user"),
         "password": stored.get("imap.password"),
         "mailbox": stored.get("imap.mailbox"),
+        "mailbox_header": stored.get("imap.folder-header"),
     }

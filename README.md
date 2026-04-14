@@ -60,7 +60,13 @@ omgmail config set imap.port "993"
 omgmail config set imap.user "user@gmail.com"
 omgmail config set imap.password "app-password"
 omgmail config set imap.mailbox "INBOX"
+omgmail config set imap.folder-header "X-OMGmail-IMAP-Folder"
 ```
+
+If `imap.folder-header` is configured, `process` will inspect each message for that
+header and, when present with a non-empty value, use that value as the destination
+IMAP folder for that message. Messages without the header continue to use the global
+`imap.mailbox` value.
 
 ### Procmail Recipe
 
