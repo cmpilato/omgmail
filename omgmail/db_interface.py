@@ -7,10 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
-
-if TYPE_CHECKING:
-    from .imap_interface import OMGMailIMAPConfig
+from typing import Any
 
 EX_TEMPFAIL = 75
 
@@ -41,7 +38,9 @@ class ProcessorAlreadyRunningError(RuntimeError):
     """Raised when another processing instance currently holds the lock."""
 
 
-MailProcessor = Callable[[MailRecord], None]
+# Type alias for the mail processing function signature. The processor_baton can be used to pass
+# contextual information (such as an IMAP config) without a global variable.
+MailProcessor = Callable[[MailRecord, Any], None]
 
 
 def default_db_path() -> Path:
@@ -146,11 +145,12 @@ def _singleton_lock(lock_path: Path) -> Iterator[None]:
             lock_handle.close()
 
 
-def _fetch_and_clear_queue(conn: sqlite3.Connection) -> list[MailRecord]:
+def _fetch_queue(conn: sqlite3.Connection, clear_queue: bool = False) -> list[MailRecord]:
     try:
         conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute("SELECT id, received_at, raw_content FROM queue ORDER BY id").fetchall()
-        conn.execute("DELETE FROM queue")
+        if clear_queue:
+            conn.execute("DELETE FROM queue")
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -170,39 +170,22 @@ def _record_failed_job(conn: sqlite3.Connection, mail: MailRecord, error: Except
     conn.commit()
 
 
-def _default_mail_processor(mail: MailRecord) -> None:
-    # Placeholder processing step; this hook can later deliver to IMAP.
-    _ = mail
-
-
-def process_current_mails(
+def iterate_queue(
     config: QueueConfig,
+    remove_after_processing: bool = False,
     processor: MailProcessor | None = None,
-    imap_config: "OMGMailIMAPConfig | None" = None,
+    processor_baton: Any = None,
 ) -> ProcessResult:
-    if processor is None:
-        if imap_config is not None:
-            # Create a processor bound to IMAP config
-            from .imap_interface import upload_mail_record
-
-            def imap_processor(mail: MailRecord) -> None:
-                upload_mail_record(mail, imap_config)
-
-            mail_processor = cast(MailProcessor, imap_processor)
-        else:
-            mail_processor = _default_mail_processor
-    else:
-        mail_processor = processor
-
     with _singleton_lock(config.lock_file_path):
         with _open_connection(config) as conn:
-            pending = _fetch_and_clear_queue(conn)
+            pending = _fetch_queue(conn, clear_queue=remove_after_processing)
 
             succeeded = 0
             failed = 0
             for mail in pending:
                 try:
-                    mail_processor(mail)
+                    if processor is not None:
+                        processor(mail, processor_baton)
                     succeeded += 1
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
@@ -216,15 +199,6 @@ def count_queue_rows(config: QueueConfig) -> int:
         row = conn.execute("SELECT COUNT(*) FROM queue").fetchone()
         assert row is not None
         return int(row[0])
-
-
-def list_queue_rows(config: QueueConfig) -> list[MailRecord]:
-    """Return queued mail rows ordered from oldest to newest."""
-    with _open_connection(config) as conn:
-        rows = conn.execute(
-            "SELECT id, received_at, raw_content FROM queue ORDER BY id",
-        ).fetchall()
-    return [MailRecord(id=row[0], received_at=row[1], raw_content=row[2]) for row in rows]
 
 
 def get_config_value(queue_config: QueueConfig, key: str) -> str | None:
@@ -258,7 +232,7 @@ def list_config_values(queue_config: QueueConfig) -> dict[str, str]:
         return {row[0]: row[1] for row in rows}
 
 
-def get_imap_config_from_db(queue_config: QueueConfig) -> dict[str, str | None]:
+def get_imap_config_from_db(queue_config: QueueConfig) -> dict[str, Any]:
     """Retrieve all IMAP config settings from the database."""
     with _open_connection(queue_config) as conn:
         rows = conn.execute(
@@ -267,10 +241,10 @@ def get_imap_config_from_db(queue_config: QueueConfig) -> dict[str, str | None]:
         stored = {row[0]: row[1] for row in rows}
 
     return {
-        "host": stored.get("imap.host"),
-        "port": stored.get("imap.port"),
-        "user": stored.get("imap.user"),
-        "password": stored.get("imap.password"),
-        "mailbox": stored.get("imap.mailbox"),
-        "mailbox_header": stored.get("imap.folder-header"),
+        "host": stored["imap.host"],
+        "port": int(stored.get("imap.port", 993)),
+        "user": stored["imap.user"],
+        "password": stored["imap.password"],
+        "mailbox": stored.get("imap.mailbox", "ImportedInbox"),
+        "mailbox_header": stored.get("imap.mailbox-header"),
     }
