@@ -33,8 +33,10 @@ omgmail [global-options] <command>
 Commands:
 
 - `ingest`: reads one raw message from `stdin` and inserts into the queue.
-- `process`: atomically fetches all queued messages, clears the queue, then processes each message.
-- `queue`: prints a queue summary table (ID, sender, sent date, and subject) with one message per line.
+- `process`: atomically marks all queued rows for a processing attempt, processes each row, deletes
+    successful rows, and keeps failed rows with a stored processing error.
+- `queue`: prints a queue summary table (ID, sender, sent date, last processing attempt, processing
+    error, and subject) with one message per line.
 - `config`: manage persistent configuration in the database.
   - `config set <key> <value>`: set a configuration value (e.g., `config set imap.host "imap.gmail.com"`).
   - `config get <key>`: get a configuration value (e.g., `config get imap.host`).
