@@ -54,7 +54,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("ingest", help="Read a message from stdin and queue it")
-    subparsers.add_parser("process", help="Atomically fetch+clear queue and process messages")
+    subparsers.add_parser("process", help="Process a batch of queued messages")
     subparsers.add_parser("queue", help="Print a summary table of queued messages")
 
     # Config subcommands
@@ -153,7 +153,7 @@ def _do_process(queue_config: QueueConfig) -> int:
 
         result = iterate_queue(
             queue_config,
-            remove_after_processing=True,
+            readonly=False,
             processor=processor,
             processor_baton=imap_config,
         )
@@ -171,26 +171,39 @@ def _do_process(queue_config: QueueConfig) -> int:
 def _do_queue(queue_config: QueueConfig) -> int:
     terminal_width = shutil.get_terminal_size(fallback=(100, 20)).columns
     id_width = 4
-    from_width = 26
+    from_width = 22
     date_width = 19
+    mark_width = 20
+    error_width = 24
 
-    header = f"{'ID':>{id_width}}  {'FROM':<{from_width}}  {'QUEUED':<{date_width}}  SUBJECT"
+    header = (
+        f"{'ID':>{id_width}}  "
+        f"{'FROM':<{from_width}}  "
+        f"{'QUEUED':<{date_width}}  "
+        f"{'LAST TRY':<{mark_width}}  "
+        f"{'ERROR':<{error_width}}  "
+        "SUBJECT"
+    )
     print(_truncate_to_width(header, terminal_width))
 
     def processor(mail: MailRecord, _: Any) -> None:
         message = email.message_from_bytes(mail.raw_content)
         sender = _sender_from_header(message.get("From"))
         sent_date = _sent_date_from_header(message.get("Date"), mail.received_at)
+        processing_mark = (mail.processing_mark or "").replace("T", " ")[:mark_width]
+        processing_error = mail.processing_error or ""
         subject = _decode_mail_header(message.get("Subject")) or "(no subject)"
         line = (
             f"{mail.id:>{id_width}}  "
             f"{_truncate_to_width(sender, from_width):<{from_width}}  "
             f"{sent_date:<{date_width}}  "
+            f"{_truncate_to_width(processing_mark, mark_width):<{mark_width}}  "
+            f"{_truncate_to_width(processing_error, error_width):<{error_width}}  "
             f"{subject}"
         )
         print(_truncate_to_width(line, terminal_width))
 
-    result = iterate_queue(queue_config, remove_after_processing=False, processor=processor)
+    result = iterate_queue(queue_config, readonly=True, processor=processor)
     print(f"\nTotal messages in queue: {result.total}")
     return 0
 

@@ -25,6 +25,8 @@ class MailRecord:
     id: int
     received_at: str
     raw_content: bytes
+    processing_mark: str | None = None
+    processing_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,15 +77,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            raw_content BLOB NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS failed_jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            queue_id INTEGER,
-            failed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            error TEXT NOT NULL,
-            raw_content BLOB NOT NULL
+            raw_content BLOB NOT NULL,
+            processing_mark TEXT,
+            processing_error TEXT
         );
 
         CREATE TABLE IF NOT EXISTS config (
@@ -91,6 +87,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             value TEXT NOT NULL
         );
         """)
+
+    # Migrate existing queue tables created before processing columns existed.
+    queue_columns = {row[1] for row in conn.execute("PRAGMA table_info(queue)").fetchall()}
+    if "processing_mark" not in queue_columns:
+        conn.execute("ALTER TABLE queue ADD COLUMN processing_mark TEXT")
+    if "processing_error" not in queue_columns:
+        conn.execute("ALTER TABLE queue ADD COLUMN processing_error TEXT")
     conn.commit()
 
 
@@ -145,40 +148,69 @@ def _singleton_lock(lock_path: Path) -> Iterator[None]:
             lock_handle.close()
 
 
-def _fetch_queue(conn: sqlite3.Connection, clear_queue: bool = False) -> list[MailRecord]:
+def _fetch_queue(
+    conn: sqlite3.Connection,
+    mark_for_processing: bool = False,
+) -> list[MailRecord]:
     try:
         conn.execute("BEGIN IMMEDIATE")
-        rows = conn.execute("SELECT id, received_at, raw_content FROM queue ORDER BY id").fetchall()
-        if clear_queue:
-            conn.execute("DELETE FROM queue")
+        rows = conn.execute("""
+            SELECT id, received_at, raw_content, processing_mark, processing_error
+            FROM queue
+            ORDER BY id
+            """).fetchall()
+        if mark_for_processing and rows:
+            processing_mark = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+            row_ids = [int(row[0]) for row in rows]
+            placeholders = ",".join("?" for _ in row_ids)
+            conn.execute(
+                f"""
+                UPDATE queue
+                SET processing_mark = ?, processing_error = NULL
+                WHERE id IN ({placeholders})
+                """,
+                (processing_mark, *row_ids),
+            )
+            rows = [(row[0], row[1], row[2], processing_mark, None) for row in rows]
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
         raise
 
-    return [MailRecord(id=row[0], received_at=row[1], raw_content=row[2]) for row in rows]
+    return [
+        MailRecord(
+            id=row[0],
+            received_at=row[1],
+            raw_content=row[2],
+            processing_mark=row[3],
+            processing_error=row[4],
+        )
+        for row in rows
+    ]
 
 
-def _record_failed_job(conn: sqlite3.Connection, mail: MailRecord, error: Exception) -> None:
+def _delete_queue_mail(conn: sqlite3.Connection, mail: MailRecord) -> None:
+    conn.execute("DELETE FROM queue WHERE id = ?", (mail.id,))
+    conn.commit()
+
+
+def _mark_queue_mail_failed(conn: sqlite3.Connection, mail: MailRecord, error: Exception) -> None:
     conn.execute(
-        """
-        INSERT INTO failed_jobs (queue_id, error, raw_content)
-        VALUES (?, ?, ?)
-        """,
-        (mail.id, str(error), sqlite3.Binary(mail.raw_content)),
+        "UPDATE queue SET processing_error = ? WHERE id = ?",
+        (str(error), mail.id),
     )
     conn.commit()
 
 
 def iterate_queue(
     config: QueueConfig,
-    remove_after_processing: bool = False,
+    readonly: bool = False,
     processor: MailProcessor | None = None,
     processor_baton: Any = None,
 ) -> ProcessResult:
     with _singleton_lock(config.lock_file_path):
         with _open_connection(config) as conn:
-            pending = _fetch_queue(conn, clear_queue=remove_after_processing)
+            pending = _fetch_queue(conn, mark_for_processing=not readonly)
 
             succeeded = 0
             failed = 0
@@ -187,9 +219,12 @@ def iterate_queue(
                     if processor is not None:
                         processor(mail, processor_baton)
                     succeeded += 1
+                    if not readonly:
+                        _delete_queue_mail(conn, mail)
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
-                    _record_failed_job(conn, mail, exc)
+                    if not readonly:
+                        _mark_queue_mail_failed(conn, mail, exc)
 
     return ProcessResult(total=succeeded + failed, succeeded=succeeded, failed=failed)
 
