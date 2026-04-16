@@ -1,13 +1,16 @@
 import email
 import email.utils
 import imaplib
-import sys
+import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from email.message import Message
-from mailbox import mboxMessage
 
 from .db_interface import MailRecord
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,7 +22,8 @@ class OMGMailIMAPConfig:
     imap_mailbox: str | None = None
     imap_mailbox_header: str | None = None
 
-    def configured_imap(self) -> imaplib.IMAP4_SSL:
+    @contextmanager
+    def with_configured_imap(self) -> Iterator[imaplib.IMAP4_SSL]:
         if not all([self.imap_host, self.imap_user, self.imap_password, self.imap_mailbox]):
             raise ValueError("IMAP configuration is incomplete")
 
@@ -27,9 +31,17 @@ class OMGMailIMAPConfig:
         assert self.imap_user is not None
         assert self.imap_password is not None
 
+        LOGGER.info(
+            f"Logging into IMAP server host={self.imap_host} port={self.imap_port} "
+            f"user={self.imap_user}"
+        )
         imap = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
         imap.login(self.imap_user, self.imap_password)
-        return imap
+        try:
+            yield imap
+        finally:
+            LOGGER.info("Logging out from IMAP server")
+            imap.logout()
 
 
 def imap_date_from_message(msg: Message) -> str:
@@ -58,37 +70,23 @@ def mailbox_from_message(msg: Message, config: OMGMailIMAPConfig) -> str:
     return config.imap_mailbox or "ImportedInbox"
 
 
-def update_message(imap: imaplib.IMAP4_SSL, key: str, message: mboxMessage, mailbox: str) -> None:
-    try:
-        raw_message = message.as_bytes()
-        imap_date = imap_date_from_message(message)
-        imap.append(mailbox, "", imap_date, raw_message)
-        print(f"Uploaded message {key}")
-    except Exception as exc:
-        print(f"Failed to upload message {key}: {exc}", file=sys.stderr)
-
-
-def upload_messages(config: OMGMailIMAPConfig) -> None:
-    config.configured_imap()
-    # key: str
-    # message: mboxMessage
-    # try:
-    #     for key, message in []:
-    #         update_message(imap, key, message, config.imap_mailbox or "ImportedInbox")
-    # finally:
-    #     imap.logout()
-
-
-def upload_mail_record(mail: MailRecord, config: OMGMailIMAPConfig) -> None:
+def upload_mail_record(
+    mail: MailRecord,
+    config: OMGMailIMAPConfig,
+    imap: imaplib.IMAP4_SSL,
+) -> None:
     """
     Parse a MailRecord's raw bytes, extract the date, and upload to IMAP.
     Raises exceptions on parse or upload failures for DB error tracking.
     """
+
     msg = email.message_from_bytes(mail.raw_content)
-    imap = config.configured_imap()
+    imap_date = imap_date_from_message(msg)
+    mailbox = mailbox_from_message(msg, config)
     try:
-        imap_date = imap_date_from_message(msg)
-        mailbox = mailbox_from_message(msg, config)
+        LOGGER.info(f"Appending message id={mail.id} to mailbox='{mailbox}'...")
         imap.append(mailbox, "", imap_date, mail.raw_content)
-    finally:
-        imap.logout()
+        LOGGER.info(f"Uploaded message id={mail.id}")
+    except Exception as e:
+        LOGGER.error(f"Failed to upload message id={mail.id}: {e}")
+        raise
