@@ -1,5 +1,6 @@
 import argparse
 import email
+import logging
 import shutil
 import sys
 from collections.abc import Sequence
@@ -22,6 +23,8 @@ from .db_interface import (
     stash_new_mail,
 )
 from .imap_interface import OMGMailIMAPConfig, upload_mail_record
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -120,18 +123,29 @@ def _sent_date_from_header(date_header: str | None, fallback: str) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _mail_summary_from_record(mail: MailRecord) -> tuple[str, str, str]:
+    message = email.message_from_bytes(mail.raw_content)
+    sender = _sender_from_header(message.get("From"))
+    sent_date = _sent_date_from_header(message.get("Date"), mail.received_at)
+    subject = _decode_mail_header(message.get("Subject")) or "(no subject)"
+    return sender, sent_date, subject
+
+
 def _do_ingest(queue_config: QueueConfig) -> int:
     return stash_new_mail(queue_config)
 
 
 def _do_process(queue_config: QueueConfig) -> int:
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
     try:
         stored = get_imap_config_from_db(queue_config)
     except KeyError as e:
-        print(f"Missing required IMAP config value: {e}", file=sys.stderr)
+        LOGGER.error(f"Missing required IMAP config value: {e}")
         return 1
     except Exception as e:
-        print(f"Failed to read IMAP config from DB: {e}", file=sys.stderr)
+        LOGGER.error(f"Failed to read IMAP config from DB: {e}")
         return 1
 
     imap_config = None
@@ -144,26 +158,34 @@ def _do_process(queue_config: QueueConfig) -> int:
             imap_mailbox=stored["mailbox"],
             imap_mailbox_header=stored["mailbox_header"],
         )
+
+    if not imap_config:
+        LOGGER.error("IMAP configuration is required")
+        return 1
+
     try:
 
-        def processor(mail: MailRecord, imap_config: OMGMailIMAPConfig | None) -> None:
-            if not imap_config:
-                raise ValueError("IMAP configuration is required")
-            upload_mail_record(mail, imap_config)
+        def processor(mail: MailRecord, imap_session: Any) -> None:
+            sender, sent_date, subject = _mail_summary_from_record(mail)
+            LOGGER.info(
+                f"Processing mail id={mail.id} date={sent_date} from={sender} subject={subject}"
+            )
+            upload_mail_record(mail, imap_config, imap=imap_session)
 
-        result = iterate_queue(
-            queue_config,
-            readonly=False,
-            processor=processor,
-            processor_baton=imap_config,
-        )
+        with imap_config.with_configured_imap() as imap_session:
+            result = iterate_queue(
+                queue_config,
+                readonly=False,
+                processor=processor,
+                processor_baton=imap_session,
+            )
     except ProcessorAlreadyRunningError:
-        print("Another processor instance is already running; exiting.", file=sys.stderr)
+        LOGGER.warning("Another processor instance is already running; exiting.")
         return 0
 
-    print(
-        f"Processed batch: total={result.total}, "
-        f"succeeded={result.succeeded}, failed={result.failed}"
+    LOGGER.info(
+        f"Processed batch: total={result.total}, succeeded={result.succeeded}, "
+        f"failed={result.failed}"
     )
     return 0
 
@@ -187,12 +209,9 @@ def _do_queue(queue_config: QueueConfig) -> int:
     print(_truncate_to_width(header, terminal_width))
 
     def processor(mail: MailRecord, _: Any) -> None:
-        message = email.message_from_bytes(mail.raw_content)
-        sender = _sender_from_header(message.get("From"))
-        sent_date = _sent_date_from_header(message.get("Date"), mail.received_at)
+        sender, sent_date, subject = _mail_summary_from_record(mail)
         processing_mark = (mail.processing_mark or "").replace("T", " ")[:mark_width]
         processing_error = mail.processing_error or ""
-        subject = _decode_mail_header(message.get("Subject")) or "(no subject)"
         line = (
             f"{mail.id:>{id_width}}  "
             f"{_truncate_to_width(sender, from_width):<{from_width}}  "
