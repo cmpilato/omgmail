@@ -17,6 +17,7 @@ from .db_interface import (
     delete_config_value,
     get_config_value,
     get_imap_config_from_db,
+    has_pending_mail,
     iterate_queue,
     list_config_values,
     set_config_value,
@@ -138,6 +139,10 @@ def _do_ingest(queue_config: QueueConfig) -> int:
 def _do_process(queue_config: QueueConfig) -> int:
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    if not has_pending_mail(queue_config):
+        LOGGER.info("Queue is empty; nothing to process.")
+        return 0
 
     try:
         stored = get_imap_config_from_db(queue_config)

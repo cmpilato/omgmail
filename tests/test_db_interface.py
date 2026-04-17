@@ -2,7 +2,13 @@ import sqlite3
 import time
 from pathlib import Path
 
-from omgmail.db_interface import QueueConfig, count_queue_rows, iterate_queue, stash_new_mail
+from omgmail.db_interface import (
+    QueueConfig,
+    count_queue_rows,
+    has_pending_mail,
+    iterate_queue,
+    stash_new_mail,
+)
 
 
 def _queue_config(tmp_path: Path) -> QueueConfig:
@@ -54,6 +60,18 @@ def test_process_deletes_successes_and_keeps_failures_with_error(tmp_path: Path)
 
     iterate_queue(config, readonly=True, processor=observe)
     assert observed_errors == ["processing error"]
+
+
+def test_has_pending_mail_tracks_queue_presence(tmp_path: Path) -> None:
+    config = _queue_config(tmp_path)
+
+    assert has_pending_mail(config) is False
+
+    assert stash_new_mail(config, _sample_message("pending")) == 0
+    assert has_pending_mail(config) is True
+
+    iterate_queue(config, readonly=False)
+    assert has_pending_mail(config) is False
 
 
 def test_process_updates_mark_and_error_on_retry(tmp_path: Path) -> None:

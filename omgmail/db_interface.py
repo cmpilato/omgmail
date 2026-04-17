@@ -236,6 +236,12 @@ def count_queue_rows(config: QueueConfig) -> int:
         return int(row[0])
 
 
+def has_pending_mail(config: QueueConfig) -> bool:
+    with _open_connection(config) as conn:
+        row = conn.execute("SELECT 1 FROM queue LIMIT 1").fetchone()
+        return row is not None
+
+
 def get_config_value(queue_config: QueueConfig, key: str) -> str | None:
     """Retrieve a config value from the database by key."""
     with _open_connection(queue_config) as conn:
