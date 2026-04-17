@@ -26,6 +26,8 @@ from .db_interface import (
 from .imap_interface import OMGMailIMAPConfig, upload_mail_record
 
 LOGGER = logging.getLogger(__name__)
+LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -136,9 +138,14 @@ def _do_ingest(queue_config: QueueConfig) -> int:
     return stash_new_mail(queue_config)
 
 
+def _configure_logging(root_logger: logging.Logger | None = None) -> None:
+    logger = root_logger or logging.getLogger()
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+
+
 def _do_process(queue_config: QueueConfig) -> int:
-    if not logging.getLogger().handlers:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    _configure_logging()
 
     if not has_pending_mail(queue_config):
         LOGGER.info("Queue is empty; nothing to process.")
