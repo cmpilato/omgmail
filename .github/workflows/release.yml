@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install build dependencies
+        run: pip install build tomli-w
+
+      - name: Compute full version (MAJOR.MINOR.<patch>)
+        id: version
+        run: |
+          BASE=$(python -c "import tomllib; print(tomllib.loads(open('pyproject.toml').read())['project']['version'])")
+          PATCH=$(git tag --list "v${BASE}.*" | wc -l)
+          FULL="${BASE}.${PATCH}"
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "full=${FULL}" >> "$GITHUB_OUTPUT"
+
+      - name: Inject full version into pyproject.toml
+        run: |
+          python - <<'EOF'
+          import tomllib, tomli_w, pathlib
+          p = pathlib.Path("pyproject.toml")
+          data = tomllib.loads(p.read_text())
+          data["project"]["version"] = "${{ steps.version.outputs.full }}"
+          p.write_text(tomli_w.dumps(data))
+          EOF
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Create GitHub release and attach artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.full }}"
+          gh release create "${TAG}" dist/* \
+            --title "Release ${TAG}" \
+            --notes "Built from commit ${{ github.sha }}."
