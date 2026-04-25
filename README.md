@@ -1,8 +1,10 @@
 # omgmail - SQLite mail queue bridge
 
-`omgmail` is a lightweight bridge between a `procmail` injection path and a scheduled processor. Incoming mail is queued in SQLite and later consumed in batches by a separate process.
+`omgmail` is a lightweight bridge between an email MTA and a remote IMAP destination,
+collecting emails injected in real time into it via a typical Unix mail pipe, then
+depositing those mails into a remote IMAP folder system.
 
-Current implementation focuses on a robust queue foundation:
+The current implementation focuses on a robust queue foundation:
 
 - SQLite queue with `WAL` mode and configurable busy timeout.
 - Injection command that reads raw mail from `stdin` and stores it quickly.
@@ -82,3 +84,33 @@ IMAP folder for that message. Messages without the header continue to use the gl
 ```cron
 */2 * * * * /usr/bin/omgmail process --db-path /var/spool/omgmail/queue.sqlite3 >>/var/log/omgmail.log 2>&1
 ```
+
+## Cool, But ... Why?
+
+In late 2025/early 2026, Google more-or-less-silently "announced" their intentions to
+[shut down the "Check emails from other accounts" feature](https://support.google.com/mail/answer/16604719?hl=en),
+much to the utter shock and horror of countless users who love both Gmail's brilliant
+interface and spam protection _and_ the vanity email addresses they've been using for
+decades.  C. Michael Pilato was just such a user, and decided to create OMGmail so
+that he could keep using his primary self-managed-domain email address while still
+using the Gmail interface to access it.
+
+Now, many users can get around this situation by simply forwarding emails from their
+personalized accounts to their Gmail accounts, Pilato's email was associated with a
+long-running domain that has hosted mailing lists, open source software projects, etc.
+Such domains are spam targets, and not everybody has Google-sized resources to fight
+that battle.  To naively forward email from the private server to Google's mail servers
+would eventually cause the former to be blacklisted as a spam relay.  (This is not mere
+conjecture -- it had already happened in the past.)
+
+Other users in similar situations might simply allow Google to be their domain's
+mail handler outright.  But trying to achieve consensus on such a domain-wide
+change among a bunch of privacy-minded old-school hackers ... not happening.
+
+So, since Gmail would eventually no longer "pull" email from the private server,
+Pilato reasoned that the next best thing would be for the private server to "push"
+his email into Gmail via IMAP.  He loses the spam protection that Google offers
+for mails it routes outright, but he gets to keep the Gmail interface.  (And his
+mails get delivered according to _his_ schedule rather than the often-long-delayed
+poll rate that Gmail used when pulling emails via POP.)
+
