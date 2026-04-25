@@ -63,26 +63,62 @@ omgmail config set imap.host "imap.gmail.com"
 omgmail config set imap.port "993"
 omgmail config set imap.user "user@gmail.com"
 omgmail config set imap.password "app-password"
-omgmail config set imap.mailbox "INBOX"
+```
+
+By default, OMGmail will deposit mails that it processes into the "INBOX"
+IMAP folder.  But you can change this with an additional configuration:
+
+```bash
+omgmail config set imap.mailbox "SomeOtherFolder"
+```
+
+And if you have the ability to pre-process incoming email and inject
+headers conditionally (using, for example, `procmail` and `formail`),
+you can configure OMGmail to recognize a custom header whose value
+overrides the default destination IMAP folder _for that specific email_.
+
+```bash
 omgmail config set imap.mailbox-header "X-OMGmail-IMAP-Folder"
 ```
 
-If `imap.mailbox-header` is configured, `process` will inspect each message for that
-header and, when present with a non-empty value, use that value as the destination
-IMAP folder for that message. Messages without the header continue to use the global
-`imap.mailbox` value.
+### Ingestion
 
-### Procmail Recipe
+With a simple `.forward` file, you can pipe incoming mail to OMGmail:
 
-```procmail
+```
+|/usr/bin/omgmail ingest --db-path /var/spool/omgmail/queue.sqlite3
+```
+
+For more complicated setups, you might have your `.forward` send mails
+through `procmail`:
+
+```
+|/usr/bin/procmail
+```
+
+...and then have your `.procmailrc` file customize the destination
+header before passing the email to OMGmail:
+
+```
+[...]
+
+:0fw
+* ^From:.*president@whitehouse.gov
+| formail -I "X-OMGmail-Folder: Important"
+
 :0
 | /usr/bin/omgmail ingest --db-path /var/spool/omgmail/queue.sqlite3
 ```
 
-### Cron Processor
+### Processing
+
+Because processing involves authentication with a remote IMAP server,
+it's recommended that that cost _not_ be paid as part of the ingestion
+pipeline.  But you can drive processing as a cron job, for example:
 
 ```cron
-*/2 * * * * /usr/bin/omgmail process --db-path /var/spool/omgmail/queue.sqlite3 >>/var/log/omgmail.log 2>&1
+# Upload emails to the remote IMAP every five minutes.
+*/5 * * * * /usr/bin/omgmail process --db-path /var/spool/omgmail/queue.sqlite3
 ```
 
 ## Cool, But ... Why?

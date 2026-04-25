@@ -22,9 +22,12 @@ class OMGMailIMAPConfig:
     imap_mailbox: str | None = None
     imap_mailbox_header: str | None = None
 
+    def get_imap_mailbox(self) -> str:
+        return self.imap_mailbox or "INBOX"
+
     @contextmanager
     def with_configured_imap(self) -> Iterator[imaplib.IMAP4_SSL]:
-        if not all([self.imap_host, self.imap_user, self.imap_password, self.imap_mailbox]):
+        if not all([self.imap_host, self.imap_user, self.imap_password]):
             raise ValueError("IMAP configuration is incomplete")
 
         assert self.imap_host is not None
@@ -67,7 +70,7 @@ def mailbox_from_message(msg: Message, config: OMGMailIMAPConfig) -> str:
             if candidate:
                 return candidate
 
-    return config.imap_mailbox or "ImportedInbox"
+    return config.get_imap_mailbox()
 
 
 def upload_mail_record(

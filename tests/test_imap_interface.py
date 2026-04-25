@@ -4,6 +4,11 @@ from omgmail.db_interface import MailRecord
 from omgmail.imap_interface import OMGMailIMAPConfig, mailbox_from_message, upload_mail_record
 
 
+def test_get_imap_mailbox_falls_back_to_inbox_for_falsey_values() -> None:
+    assert OMGMailIMAPConfig(imap_mailbox=None).get_imap_mailbox() == "INBOX"
+    assert OMGMailIMAPConfig(imap_mailbox="").get_imap_mailbox() == "INBOX"
+
+
 def test_mailbox_from_message_uses_configured_default() -> None:
     msg = EmailMessage()
     msg["Subject"] = "default mailbox"
