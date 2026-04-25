@@ -8,6 +8,7 @@ from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import Any
 
+from . import __version__
 from .db_interface import (
     MailRecord,
     ProcessorAlreadyRunningError,
@@ -35,6 +36,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description="Store incoming mail in a SQLite queue and process it later."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"OMGmail {__version__}",
     )
     parser.add_argument(
         "--db-path",
