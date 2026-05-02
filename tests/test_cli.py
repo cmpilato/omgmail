@@ -1,8 +1,9 @@
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 from omgmail.cli import LOG_DATE_FORMAT, LOG_FORMAT, _configure_logging, _do_process
-from omgmail.db_interface import QueueConfig
+from omgmail.db_interface import QueueConfig, set_config_value, stash_new_mail
 
 
 def _queue_config(tmp_path: Path) -> QueueConfig:
@@ -37,3 +38,46 @@ def test_configure_logging_uses_datestamped_format(monkeypatch) -> None:  # type
         "format": LOG_FORMAT,
         "datefmt": LOG_DATE_FORMAT,
     }
+
+
+def test_process_logs_message_context_for_upload_failures(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:  # type: ignore[no-untyped-def]
+    config = _queue_config(tmp_path)
+    raw_message = (
+        "From: Sender Example <sender@example.com>\n"
+        "Date: Thu, 16 Apr 2026 12:34:56 +0000\n"
+        "Subject: Upload Failure\n"
+        "\n"
+        "Body\n"
+    ).encode("utf-8")
+    assert stash_new_mail(config, raw_message) == 0
+
+    set_config_value(config, "imap.host", "imap.example.com")
+    set_config_value(config, "imap.user", "user")
+    set_config_value(config, "imap.password", "secret")
+
+    @contextmanager
+    def fake_with_configured_imap(self):  # type: ignore[no-untyped-def]
+        yield object()
+
+    def fail_upload(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("simulated upload failure")
+
+    monkeypatch.setattr(
+        "omgmail.cli.OMGMailIMAPConfig.with_configured_imap",
+        fake_with_configured_imap,
+    )
+    monkeypatch.setattr("omgmail.cli.upload_mail_record", fail_upload)
+
+    caplog.set_level(logging.INFO)
+
+    assert _do_process(config) == 0
+
+    assert "Processed batch: total=1, succeeded=0, failed=1" in caplog.text
+    assert "Processing failed for mail id=1" in caplog.text
+    assert "Sender Example <sender@example.com>" in caplog.text
+    assert "Upload Failure" in caplog.text
+    assert "simulated upload failure" in caplog.text

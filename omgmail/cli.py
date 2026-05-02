@@ -188,7 +188,17 @@ def _do_process(queue_config: QueueConfig) -> int:
             LOGGER.info(
                 f"Processing mail id={mail.id} date={sent_date} from={sender} subject={subject}"
             )
-            upload_mail_record(mail, imap_config, imap=imap_session)
+            try:
+                upload_mail_record(mail, imap_config, imap=imap_session)
+            except Exception:
+                LOGGER.exception(
+                    "Processing failed for mail id=%s date=%s from=%s subject=%s",
+                    mail.id,
+                    sent_date,
+                    sender,
+                    subject,
+                )
+                raise
 
         with imap_config.with_configured_imap() as imap_session:
             result = iterate_queue(
