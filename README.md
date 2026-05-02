@@ -132,8 +132,8 @@ that he could keep using his primary self-managed-domain email address while sti
 using the Gmail interface to access it.
 
 Now, many users can get around this situation by simply forwarding emails from their
-personalized accounts to their Gmail accounts, Pilato's email was associated with a
-long-running domain that has hosted mailing lists, open source software projects, etc.
+personalized accounts to their Gmail accounts.  But Pilato's email was associated with
+a long-running domain that has hosted mailing lists, open source software projects, etc.
 Such domains are spam targets, and not everybody has Google-sized resources to fight
 that battle.  To naively forward email from the private server to Google's mail servers
 would eventually cause the former to be blacklisted as a spam relay.  (This is not mere
@@ -148,5 +148,5 @@ Pilato reasoned that the next best thing would be for the private server to "pus
 his email into Gmail via IMAP.  He loses the spam protection that Google offers
 for mails it routes outright, but he gets to keep the Gmail interface.  (And his
 mails get delivered according to _his_ schedule rather than the often-long-delayed
-poll rate that Gmail used when pulling emails via POP.)
+automagical poll rate that Gmail used when pulling emails via POP.)
 
