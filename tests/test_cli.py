@@ -1,8 +1,9 @@
 import logging
+import os
 from contextlib import contextmanager
 from pathlib import Path
 
-from omgmail.cli import LOG_DATE_FORMAT, LOG_FORMAT, _configure_logging, _do_process
+from omgmail.cli import LOG_DATE_FORMAT, LOG_FORMAT, _configure_logging, _do_process, _do_queue
 from omgmail.db_interface import QueueConfig, set_config_value, stash_new_mail
 
 
@@ -47,12 +48,12 @@ def test_process_logs_message_context_for_upload_failures(
 ) -> None:  # type: ignore[no-untyped-def]
     config = _queue_config(tmp_path)
     raw_message = (
-        "From: Sender Example <sender@example.com>\n"
-        "Date: Thu, 16 Apr 2026 12:34:56 +0000\n"
-        "Subject: Upload Failure\n"
-        "\n"
-        "Body\n"
-    ).encode("utf-8")
+        b"From: Sender Example <sender@example.com>\n"
+        b"Date: Thu, 16 Apr 2026 12:34:56 +0000\n"
+        b"Subject: Upload Failure \xe2\x80\x94 urgent\n"
+        b"\n"
+        b"Body\n"
+    )
     assert stash_new_mail(config, raw_message) == 0
 
     set_config_value(config, "imap.host", "imap.example.com")
@@ -81,3 +82,27 @@ def test_process_logs_message_context_for_upload_failures(
     assert "Sender Example <sender@example.com>" in caplog.text
     assert "Upload Failure" in caplog.text
     assert "simulated upload failure" in caplog.text
+
+
+def test_queue_displays_mail_with_unknown_8bit_headers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:  # type: ignore[no-untyped-def]
+    config = _queue_config(tmp_path)
+    raw_message = (
+        b"From: Sender Example <sender@example.com>\n"
+        b"Date: Thu, 16 Apr 2026 12:34:56 +0000\n"
+        b"Subject: Queue Summary \xe2\x80\x94 visible\n"
+        b"\n"
+        b"Body\n"
+    )
+    assert stash_new_mail(config, raw_message) == 0
+    monkeypatch.setattr("omgmail.cli.shutil.get_terminal_size", lambda fallback: os.terminal_size((200, 20)))
+
+    assert _do_queue(config) == 0
+
+    output = capsys.readouterr().out
+    assert "Sender Example" in output
+    assert "Queue Summary" in output
+    assert "Total messages in queue: 1" in output

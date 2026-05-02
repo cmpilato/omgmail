@@ -95,7 +95,10 @@ def _decode_mail_header(value: str | None) -> str:
     decoded_parts: list[str] = []
     for part, encoding in decode_header(value):
         if isinstance(part, bytes):
-            decoded_parts.append(part.decode(encoding or "utf-8", errors="replace"))
+            try:
+                decoded_parts.append(part.decode(encoding or "utf-8", errors="replace"))
+            except LookupError:
+                decoded_parts.append(part.decode("utf-8", errors="replace"))
         else:
             decoded_parts.append(part)
     return "".join(decoded_parts).replace("\r", " ").replace("\n", " ").strip()
